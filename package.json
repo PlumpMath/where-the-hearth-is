@@ -1,0 +1,22 @@
+{
+  "name": "hearth-node-server",
+  "version": "0.1.2",
+  "description": "server for hearth minimo",
+  "main": "main.js",
+  "scripts": {
+    "start": "node main.js"
+  },
+  "dependencies": {
+    "express": "~4.9.x",
+    "socket.io": "~1.x"
+  },
+  "engines": {
+    "node": "0.10.x"
+  },
+  "keywords": [
+    "node",
+    "heroku",
+    "express"
+  ],
+  "license": "MIT"
+}

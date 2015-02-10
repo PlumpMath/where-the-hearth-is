@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<script type="text/javascript" src="https://mighty-sea-6126.herokuapp.com/socket.io/socket.io.js"></script>
+		<script src="https://ajax.googleapis.com/ajax/libs/jquery/2.1.1/jquery.min.js"></script>
+		<script type="text/javascript">
+			//networking
+			console.log(window.location.hostname);
+			var socketio = io.connect(window.location.hostname);
+
+			//canvas
+			var canvas = null;
+			var context = null;
+			var origin = {x:0,y:0};
+
+			//images
+			var loadNum = 0;
+			var loadTotal = 10;
+			var playerImg, mugEmptyImg, houseImg, playerDrinkingImg;
+			var audioList = [];
+
+			//logic
+			var input = {left:false, right:false, up:false, down:false};
+			var levelBounds = {w:200,h:140};
+			var player = {x:0, y:53, speed:0.5};
+			var mugList = [];
+			var snowList = [];
+			var snowNum = 150;
+			var smokeList = [];
+			var smokeNum = 0;
+			var toneNum = 0;
+			var numPlayers = 1;
+
+			var rootURL = "http://www.ledoux.io/apps/hearth/";
+
+			//Timers
+			Timer = function(timerLength) {//give a time in seconds until the timer should be done
+				this.startTime = Date.now(); //milliseconds
+				this.timerLength = timerLength * 1000; //translate from seconds to milliseconds
+			};
+			Timer.prototype = {
+				isDone: function() {
+					return Date.now() > this.startTime + this.timerLength; 
+				},
+				reset: function() {
+					this.startTime = Date.now();
+				},
+				percentDone: function() {
+					return Math.min( (Date.now() - this.startTime)  / this.timerLength, 1.0);
+				}
+			};
+			var smokeTimer = new Timer(0.6);
+
+			//drinking
+			var drinkTimer = new Timer(1);
+			var isDrinking = false;
+			var teaBoilTimer = new Timer(30);
+			var isTeaReady = false;
+
+			socketio.on("message_to_client", function(data) {
+				data.timer = new Timer(60);
+				//playSound($("<div></div>"), "tone" + data["tone"] + ".wav");
+				audioList[data["tone"]-1].play();
+				mugList.push(data);
+			});
+
+			socketio.on("player_num_change", function(data) {
+				numPlayers = data["num"];
+			});
+
+			function sendMessage() {
+				socketio.emit("message_to_server", { x : player.x, y : player.y, tone: toneNum });
+			}
+
+			function startGame() {
+				$(window).resize(resize);
+				$("html").keydown(keydown);
+				$("html").keyup(keyup);
+
+				canvas = document.getElementById("game_canvas");
+				context = canvas.getContext("2d");
+				resize();
+
+				playerImg = new Image();
+				playerImg.src = rootURL + "wintersprite.png";
+				playerImg.onload = function() {
+					loadNum++;
+				}
+
+				playerDrinkingImg = new Image();
+				playerDrinkingImg.src = rootURL + "wintersprite2.png";
+				playerDrinkingImg.onload = function() {
+					loadNum++;
+				}
+
+				mugEmptyImg = new Image();
+				mugEmptyImg.src = rootURL + "hotcocaosprite_empty.png";
+				mugEmptyImg.onload = function() {
+					loadNum++;
+				}
+
+				houseImg = new Image();
+				houseImg.src = rootURL + "house.png";
+				houseImg.onload = function() {
+					loadNum++;
+				}
+
+				for (var i = 1; i <= 6; i++) {
+					var a = new Audio();
+					a.src = rootURL + "tone" + i + ".wav";
+					a.oncanplaythrough = function() {
+						loadNum++;
+					}
+					audioList.push(a);
+				}
+
+				for (var i = 0; i < snowNum; i++) {
+					snowList.push({xP: Math.random(), yP: Math.random(), f: 1 + Math.random()});
+				}
+
+				teaBoilTimer.reset();
+
+				setInterval(update, 0);
+			}
+
+			function resize() {
+				canvas.width = $(window).width();
+				canvas.height = $(window).height();
+				origin.x = canvas.width/2;
+				origin.y = canvas.height/2 + 50;
+			}
+
+			function update() {
+				if (loadNum >= loadTotal) {
+					if (!isDrinking) {
+						move();
+					}
+					snow();
+					smoke();
+					destroyMugs();
+
+					render();
+
+					if (isDrinking && drinkTimer.isDone()) {
+						isDrinking = false;
+					}
+
+					if (!isTeaReady && teaBoilTimer.isDone()) {
+						isTeaReady = true;
+						smokeNum = 5;
+					}
+				}
+			}
+
+			function destroyMugs() {
+				var destroyList = [];
+				for (i in mugList) {
+					var m = mugList[i];
+					if (m.timer.isDone()) {
+						destroyList.push(m);
+					}
+				}
+				for (i in destroyList) {
+					var d = destroyList[i];
+					mugList.splice(mugList.indexOf(d),1);
+				}
+			}
+
+			function smoke() {
+				if (smokeList.length < smokeNum && smokeTimer.isDone()) {
+					smokeList.push({x:0, y:-210, size:6});
+					smokeTimer.reset();
+				}
+
+				var destroyList = [];
+				for (i in smokeList) {
+					var s = smokeList[i];
+					s.x += 0.1;
+					s.y -= 0.2;
+					s.size += 0.1;
+
+					if (s.size > 30) {
+						destroyList.push(s);
+					}
+				}
+				for (i in destroyList) {
+					var d = destroyList[i];
+					smokeList.splice(smokeList.indexOf(d),1);
+				}
+			}
+
+			function snow() {
+				for (i in snowList) {
+					var s = snowList[i];
+					s.xP += 0.0005 * s.f;
+					s.yP += 0.001 * s.f;
+					if (s.xP > 1 || s.yP > 1) {
+						if (Math.random() > 0.5) {
+							s.xP = Math.random();
+							s.yP = 0;
+						}
+						else {
+							s.yP = Math.random();
+							s.xP = 0;
+						}
+					}
+				}
+			}
+
+			function move() {
+				if (input.left && player.x > (-levelBounds.w/2 + 16)) player.x -= player.speed;
+				if (input.right && player.x < (levelBounds.w/2 - 16)) player.x += player.speed;
+				if (input.up && player.y > -levelBounds.h/2) player.y -= player.speed;
+				if (input.down && player.y < (levelBounds.h/2 - 16)) player.y += player.speed;
+			}
+
+			function render() {
+				context.fillStyle = "#fff";
+				context.fillRect(0, 0, canvas.width, canvas.height);
+
+				//context.fillStyle = "#BFF2FF";
+				//context.fillRect(origin.x - levelBounds.w/2, origin.y - levelBounds.h/2, levelBounds.w, levelBounds.h);
+				context.fillStyle = "#D8E5FF";
+				for (i in snowList) {
+					var s = snowList[i];
+					context.fillRect(canvas.width * s.xP, canvas.height * s.yP, 3 * s.f, 3 *  s.f);
+				}
+
+
+
+				context.drawImage(houseImg, origin.x - houseImg.width/2, origin.y - houseImg.height/2 - levelBounds.h/2);
+
+				for (i in mugList) {
+					var m = mugList[i];
+					context.drawImage(mugEmptyImg, origin.x + m.x - mugEmptyImg.width/2, origin.y + m.y - mugEmptyImg.height/2);
+				}
+
+				if (isDrinking) {
+					context.drawImage(playerDrinkingImg, origin.x + player.x - playerImg.width/2, origin.y + player.y - playerImg.height/2);
+				}
+				else {
+					context.drawImage(playerImg, origin.x + player.x - playerImg.width/2, origin.y + player.y - playerImg.height/2);
+				}
+
+				context.fillStyle = "#D8D8D8";
+				for (i in smokeList) {
+					var s = smokeList[i]
+					context.fillRect(origin.x + s.x - s.size/2, origin.y + s.y - s.size/2, s.size, s.size);
+				}
+
+				context.font = "15px Georgia";
+				context.fillStyle = "#000";
+				context.fillText("Where the hearth is", origin.x - 100, origin.y + 100);
+
+				context.font = "12px Georgia";
+				context.fillText("a miniature multiplayer online game", origin.x - 100, origin.y + 115);
+				context.fillText("by Adam Le Doux", origin.x - 100, origin.y + 130);
+
+				context.fillText("when smoke is rising, the tea is ready", origin.x - 100, origin.y + 160);
+				context.fillText("press space to drink tea", origin.x - 100, origin.y + 175);
+				context.fillText("use arrow keys to meander", origin.x - 100, origin.y + 190);
+
+				if (numPlayers <= 1) {
+					context.fillText("you're the only person online", origin.x - 100, origin.y + 220);	
+				}
+				else if (numPlayers == 2) {
+					context.fillText("there is 1 other person online", origin.x - 100, origin.y + 220);
+				}
+				else {
+					context.fillText("there are " + (numPlayers - 1) + " other people online", origin.x - 100, origin.y + 220);
+				}
+				
+			}
+
+			function keydown(e) {
+				if (e.which == 32 && isTeaReady) { //space
+					isDrinking = true;
+					drinkTimer.reset();
+					isTeaReady = false;
+					teaBoilTimer.reset();
+					smokeNum = 0;
+					toneNum = Math.floor(((player.y + levelBounds.h/2) / levelBounds.h) * 6) + 1;
+					sendMessage();
+				}
+
+				if (e.which == 37) { //left
+					input.left = true;
+				}
+				else if (e.which == 39) { //right
+					input.right = true;
+				}
+
+				if (e.which == 38) { //up
+					input.up = true;
+				}
+				else if (e.which == 40) { //down
+					input.down = true;
+				}
+
+				e.preventDefault();
+			}
+
+			function keyup(e) {
+				if (e.which == 37) { //left
+					input.left = false;
+				}
+				else if (e.which == 39) { //right
+					input.right = false;
+				}
+
+				if (e.which == 38) { //up
+					input.up = false;
+				}
+				else if (e.which == 40) { //down
+					input.down = false;
+				}
+
+				e.preventDefault();
+			}
+
+			function playSound(el,soundfile) {
+		        el.mp3 = new Audio(soundfile);
+		        el.mp3.play();
+			}
+		</script>
+
+		<style>
+			html{
+				height: 100%;
+			}
+			body {
+				min-height: 100%;
+				height: 100%;
+				margin: 0px;
+				overflow: hidden;
+			}
+			#game_canvas {
+				background: #000;
+				height: 100%;
+				width: 100%;
+			}
+		</style>
+	</head>
+	<body onload="startGame()">
+		<canvas id="game_canvas"></canvas>
+		<audio loop="loop" autoplay="autoplay" controls>
+			<source src="http://www.ledoux.io/apps/hearth/fireplace.mp3" type="audio/mpeg">
+		</audio>
+	</body>
+</html>
