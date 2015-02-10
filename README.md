@@ -1,2 +1,2 @@
 # Where the hearth is
-A miniature multiplayer online game by Adam Le Doux
+a miniature multiplayer tea drinking simulation made with NodeJS
